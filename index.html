@@ -5,11 +5,144 @@
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/css/reset.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.css">
     <script src="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.js"></script>
+    <script src="https://fgnass.github.io/spin.js/spin.min.js"></script>
   </head>
   <body class="mixpanel-platform-body">
-    <h1>Hello, World!</h1>
+    <div class="mixpanel-platform-section">
+      <div id="selection">
+        <div id="eventName" style="float: left;"></div>
+        <div id="by" class="mixpanel-platform-label" style="margin-left: 10px; display: none;">by</div>
+        <div id="eventProp" style="float: left;"></div>
+        <div style="clear: both;"></div>
+        <div id="divisorEventName" style="float: left;"></div>
+        <div id="dividendInterval" style="float: left;"></div>
+        <div id="over" class="mixpanel-platform-label" style="margin-left: 10px; display: none;">over</div>
+        <div id="divisorInterval" style="float: left;"></div>
+        <div style="clear: left"></div>
+        <div style="clear: both;"></div>
+      </div> 
+      <div id="graph">
+        <div style="clear: both;"></div>
+      </div>
+    </div>
     <script>
-      // Run queries and display results here
+     var opts = {
+        lines: 17, // The number of lines to draw
+        length: 0, // The length of each line
+        width: 6, // The line thickness
+        radius: 20, // The radius of the inner circle
+        corners: 1, // Corner roundness (0..1)
+        rotate: 0, // The rotation offset
+        direction: 1, // 1: clockwise, -1: counterclockwise
+        color: '#000', // #rgb or #rrggbb or array of colors
+        speed: 1, // Rounds per second
+        trail: 55, // Afterglow percentage
+        shadow: true, // Whether to render a shadow
+        hwaccel: false, // Whether to use hardware acceleration
+        className: 'spinner', // The CSS class to assign to the spinner
+        zIndex: 2e9, // The z-index (defaults to 2000000000)
+        top: '50%', // Top position relative to parent
+        left: '75%' // Left position relative to parent
+      };
+      var target = document.getElementById('selection');
+      MP.api.ready(function() {
+        $('#over').show();
+        // replace with event name of your choice
+        var eventName = $('#eventName').MPEventSelect();
+        var divisorEventName = $('#divisorEventName').MPEventSelect();
+        var segmentation = $('#eventProp').MPPropertySelect();
+        // Setting our intervals
+        var divisorOptions = {
+          items: [
+            {label: 'Weekly Active Users', value: 'week'},
+            {label: 'Monthly Active Users', value: 'month'},
+          ]
+        };
+
+        var dividendOptions = {
+          items: [
+            {label: 'Daily Active Users', value: 'day'},
+            {label: 'Weekly Active Users', value: 'week'},
+            {label: 'Monthly Active Users', value: 'month'},
+          ]
+        };
+
+        var divisorInterval = $('#divisorInterval').MPSelect(divisorOptions);
+        var dividendInterval = $('#dividendInterval').MPSelect(dividendOptions);
+
+        // Check that eventName is defined
+        var propCheck = function () {
+          if (eventName.val() && segmentation.val()){
+            runQuery();
+          }
+        };
+
+        // Make 2 segmentation queries
+        var runQuery = function() {
+          $('#graph').empty();
+          var chart = $('#graph').MPChart({ chartType: 'line' });
+          var spinner = new Spinner(opts).spin(target); 
+          var segmentationStr = 'properties["' + segmentation.val() + '"]'
+          var $dividend = MP.api.segment(eventName.val(), {
+            from: moment().subtract(30, 'days'),
+            on: segmentationStr,
+            to: moment().subtract(1, 'days'),
+            unit: dividendInterval.MPSelect('value'),
+            type: 'unique'
+          });
+
+
+          var $divisor = MP.api.segment(divisorEventName.val(), {
+            from: moment().subtract(30, 'days'),
+            on: segmentationStr,
+            to: moment().subtract(1, 'days'),
+            unit: divisorInterval.MPSelect('value'),
+            type: 'unique'
+          });
+          // Wait till the segmentation queries finish
+          $.when($dividend, $divisor).done(function(dividend, divisor) {
+            var data = {};
+            // Set our divisor dates and report them backgrounds
+            var properties = _.keys(divisor.values())
+            var divisorDates = _.keys(divisor.values()[properties[0]]).sort().reverse()
+           /* Iterate through each divisor date to check whether it is greater
+              than the dividend. If so divide and store that data on the dividend
+              date. We loop backwards through the divisor to only divide dates
+              that are after our definition of a week
+           */
+            var divData = dividend.values()
+            _.each(properties, function(prop) {
+              data[prop] = {}
+              _.each(divisorDates, function(divisorDate) {
+                _.each(_.keys(divData[prop]), function(divDate){
+                  if (divDate <= divisorDate) {
+                    denominator =  divisor.values()[prop][divisorDate];
+                    numerator = dividend.values()[prop][divDate];
+                    // Check for dividing by 0, in which case we do not include
+                    if (denominator != 0) {
+                      data[prop][divDate] =  numerator / denominator;
+                    }
+                  }
+                });
+              });
+            });
+            console.log (data)
+            spinner.stop();
+            $("#loading").hide();
+            chart.MPChart('setData', data);
+          });
+        };
+
+        eventName.on('change', function(e, Name){
+          $('#by').show();
+          segmentation.MPPropertySelect('setEvent', Name);
+          propCheck()
+        });
+
+        segmentation.on('change', propCheck);
+        divisorInterval.on('change', propCheck);
+        dividendInterval.on('change', propCheck);
+      });
     </script>
   </body>
 </html>
